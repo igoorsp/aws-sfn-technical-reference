@@ -1,0 +1,169 @@
+h1. Documentação Técnica - Formas de Iniciar uma AWS Step Function (Standard Workflows)
+
+h2. Visão Geral
+Esta documentação aborda métodos para iniciar máquinas de estados do tipo *Standard* no AWS Step Functions, focando em cenários onde desenvolvedores _não possuem acesso privilegiado_ (Console/CLI). Inclui detalhes técnicos, exemplos em Java, diagramas e práticas recomendadas para ambientes de produção.
+
+h2. Índice
+# Formas de Iniciação
+# Execuções Assíncronas
+# Monitoramento e Troubleshooting
+# Melhores Práticas
+# Limites e Cotas
+# Exemplos Avançados
+
+h2. Formas de Iniciar uma Step Function
+|| Método || Caso de Uso || Complexidade || Latência ||
+| SDK Java | Automação programática | Baixa | Imediata |
+| SQS + Lambda | Processamento em lote | Média | Variável |
+| EventBridge | Eventos em tempo real | Média | Baixa |
+| EventBridge Scheduler | Agendamentos recorrentes | Baixa | Previsível |
+| API Gateway + Lambda | Integração com APIs externas | Alta | Alta |
+
+h2. Execuções Assíncronas
+
+h3. SDK Java - startExecution
+{code:java}
+DescribeExecutionRequest request = DescribeExecutionRequest.builder()
+    .executionArn("arn:...").build();
+DescribeExecutionResponse response = sfnClient.describeExecution(request);
+System.out.println(response.status());
+{code}
+
+h2. Monitoramento e Troubleshooting
+
+h3. Consulta do Status
+{code:java}
+DescribeExecutionRequest request = DescribeExecutionRequest.builder()
+    .executionArn("arn:...").build();
+DescribeExecutionResponse response = sfnClient.describeExecution(request);
+System.out.println(response.status());
+{code}
+
+h3. Histórico Detalhado
+{code:java}
+GetExecutionHistoryRequest request = GetExecutionHistoryRequest.builder()
+    .executionArn("arn:...").build();
+GetExecutionHistoryResponse history = sfnClient.getExecutionHistory(request);
+history.events().forEach(System.out::println);
+{code}
+
+h3. CloudWatch Metrics
+{code:json}
+{
+  "Metrics": [
+    {
+      "Id": "errors",
+      "MetricStat": {
+        "Metric": {
+          "Namespace": "AWS/States",
+          "MetricName": "ExecutionsFailed",
+          "Dimensions": [
+            {
+              "Name": "StateMachineArn",
+              "Value": "arn:aws:states:..."
+            }
+          ]
+        },
+        "Period": 300,
+        "Stat": "Sum"
+      },
+      "ReturnData": true
+    }
+  ],
+  "Threshold": 1,
+  "ComparisonOperator": "GreaterThanOrEqualToThreshold"
+}
+{code}
+
+h2. Melhores Práticas
+
+h3. Segurança
+* Princípio do Menor Privilégio: restrinja as permissões a somente o necessário.
+* Criptografia: use KMS para proteger dados sensíveis.
+* Validação de Inputs (limite 256 KB):
+{code:java}
+boolean isValidInput(String json) {
+    return json.length() <= 256 * 1024 && json.startsWith("{") && json.endsWith("}");
+}
+{code}
+
+h3. Idempotência
+{code:java
+String name = gerarChaveIdempotente(input);
+StartExecutionRequest request = StartExecutionRequest.builder()
+    .name(name)
+    .input(input)
+    .build();
+{code}
+
+h3. Tratamento de Falhas
+{code:java}
+try {
+    sfnClient.startExecution(request);
+} catch (ExecutionLimitExceededException e) {
+    // Reenfileirar, alertar, aplicar backoff exponencial, etc.
+}
+{code}
+
+h2. Limites e Cotas
+|| Recurso || Limite Standard || Ação Recomendada ||
+| Execuções Ativas | 1.000.000 por conta | Solicitar aumento |
+| Tamanho do Input | 256 KB | Usar S3 para payloads grandes |
+| Duração da Execução | 1 ano | Dividir em subworkflows |
+| Taxa de Execução | 2.000/s por conta | Usar Express Workflows |
+
+h2. Exemplos Avançados
+
+h3. Integração com API Gateway + Lambda
+{code:java}
+public class ApiHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
+    public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent event, Context context) {
+        String input = event.getBody();
+        String executionArn = startStepFunction(input);
+        return new APIGatewayProxyResponseEvent()
+            .withStatusCode(202)
+            .withBody("{\"executionArn\":\"" + executionArn + "\"}");
+    }
+}
+{code}
+
+h3. Processamento Paralelo com SQS
+{code:java}
+ReceiveMessageRequest receiveRequest = ReceiveMessageRequest.builder()
+    .queueUrl(queueUrl)
+    .maxNumberOfMessages(10)
+    .build();
+
+while (true) {
+    sqsClient.receiveMessage(receiveRequest).thenAccept(response -> {
+        response.messages().forEach(msg -> processMessage(msg.body()));
+    });
+}
+{code}
+
+h2. Diagramas de Arquitetura
+
+h3. Cenário Completo: Processamento de Pedidos
+{code}
+[Cliente]
+  → (API Gateway)
+  → [Lambda de Validação]
+  → [SQS]
+  → [Lambda Consumidora]
+  → [Step Function]
+    → [Lambda Processamento]
+    → [DynamoDB]
+    → [SNS Notificações]
+{code}
+
+h3. Monitoramento Centralizado
+{code}
+[CloudWatch Metrics]
+  → [Alarmes]
+  → [SNS → Email/Slack]
+
+[CloudWatch Logs]
+  → [Logs Insights]
+  → [Dashboards]
+{code}
+
