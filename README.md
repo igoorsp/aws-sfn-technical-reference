@@ -1,7 +1,3 @@
-Segue uma **introdução formal, clara e evolutiva** para o tópico "Cenários Autorizados para Uso do AWS Step Functions", incluindo o contexto de homologação dos serviços pela empresa e complementos sugeridos:
-
----
-
 ### **Cenários Autorizados para Uso do AWS Step Functions**
 
 Esta página documenta, de maneira objetiva e detalhada, os cenários permitidos para o uso das máquinas de estado (*state machines*) AWS Step Functions dentro da arquitetura da empresa. Os cenários descritos aqui foram previamente validados tecnicamente pelo time de Arquitetura e homologados pelo time responsável por Segurança da Informação.
@@ -19,4 +15,19 @@ Além disso, recomenda-se que as equipes técnicas consultem periodicamente esta
 - **Pontos de contato internos** para esclarecimento e abertura de novos cenários.
 - **Exemplos práticos e curtos** para cada cenário autorizado, facilitando o entendimento.
 
-Esta abordagem promove segurança operacional, agilidade nas implementações e uma governança clara das integrações técnicas da AWS Step Functions dentro da empresa.
+---
+
+### **Cenários Restritos para Uso do AWS Step Functions**
+
+Este documento apresenta, de forma clara e objetiva, os cenários atualmente restritos ou proibidos para utilização do serviço AWS Step Functions na empresa. As restrições aqui listadas têm como objetivo garantir conformidade técnica, segurança e desempenho, evitando práticas arquiteturais inadequadas ou implementações que possam gerar riscos operacionais ou de segurança.
+
+É importante destacar que esta documentação possui um caráter **dinâmico e evolutivo**, sendo regularmente revisada pela equipe técnica de Arquitetura e Segurança da Informação, conforme novos padrões e requisitos técnicos forem identificados. Dessa forma, a relação de cenários restritos pode sofrer alterações periódicas.
+
+Caso haja necessidade de utilizar algum cenário atualmente classificado como restrito, as equipes deverão, obrigatoriamente, submeter esse cenário à revisão técnica e homologação pelo time de Arquitetura antes de qualquer implementação prática ou produtiva.
+
+**Complementos sugeridos para esta página:**
+
+- **Justificativas técnicas claras** para cada cenário restrito, detalhando riscos e implicações.
+- **Alternativas homologadas** recomendadas para substituição dos cenários restritos.
+- **Procedimento formal para solicitar revisão e eventual liberação de cenários restritos**.
+- **Contato interno da equipe técnica responsável** pela revisão e homologação.
