@@ -15,7 +15,7 @@ Esta documentação é **evolutiva**, sendo revisada continuamente para refletir
 ### 📚 Índice de Referência por Caso de Uso
 
 | Cenário Técnico | Página de Segurança Relacionada |
-|-----------------|-----------------------------|
+|------------------|-----------------------------|
 | API Gateway com Lambda Authorizer | [Segurança: API Gateway + Lambda Authorizer](#seguranca-api-gateway--lambda-authorizer) |
 | Backend (Java) com AWS SDK em EKS Privado (IRSA) | [Segurança: Backend com IRSA (EKS)](#seguranca-backend-com-irsa-eks) |
 | Callback Pattern com SQS e Task Token | [Segurança: Callback com Task Token](#seguranca-callback-com-task-token) |
@@ -26,73 +26,131 @@ Esta documentação é **evolutiva**, sendo revisada continuamente para refletir
 
 ## 🔐 Segurança: API Gateway + Lambda Authorizer
 
-Este modelo envolve um fluxo onde o **usuário se autentica via API Gateway**, utilizando **Lambda Authorizer personalizado**, e a execução da **Step Function é iniciada diretamente** pela integração do API Gateway com o serviço `states.amazonaws.com`.
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "states:StartExecution",
+      "Resource": "arn:aws:states:us-east-1:123456789012:stateMachine:MeuWorkflow"
+    }
+  ]
+}
+```
 
-**Recomendações técnicas:**
-- Uso obrigatório de Lambda Authorizer com validação de JWT/scopes.
-- Role IAM do API Gateway com permissão apenas para `states:StartExecution` em ARN específica.
-- Uso de mapping templates para repassar contexto do usuário (userId, tenant, etc.).
-- Habilitação de logs no API Gateway e observabilidade via CloudWatch.
+**Exemplo de mapping template (VTL):**
 
-🔗 [Exemplo de política IAM e template de integração →](#)
+```vtl
+{
+  "executionContext": {
+    "userId": "$context.authorizer.userId",
+    "roles": "$context.authorizer.scope"
+  },
+  "payload": $input.body
+}
+```
 
 ---
 
 ## 🔐 Segurança: Backend com IRSA (EKS)
 
-Cenário onde a execução do `StartExecution` ocorre via **AWS SDK Java** em uma aplicação hospedada em **EKS Privado**, utilizando **IRSA (IAM Roles for Service Accounts)**.
+**Trust Policy da IAM Role para IRSA:**
 
-**Práticas obrigatórias:**
-- Uma IAM Role exclusiva vinculada ao ServiceAccount com `states:StartExecution`.
-- Trust policy com OIDC configurada para o cluster.
-- Uso de VPC Endpoint Interface para Step Functions (sem NAT Gateway).
-- Rastreabilidade via execução nomeada + CloudTrail.
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/<OIDC_PROVIDER_URL>"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "<OIDC_PROVIDER_URL>:sub": "system:serviceaccount:<NAMESPACE>:<SERVICE_ACCOUNT_NAME>"
+        }
+      }
+    }
+  ]
+}
+```
 
-🔗 [Exemplo completo de role + YAML de ServiceAccount →](#)
+**Permissão Mínima:**
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "states:StartExecution",
+  "Resource": "arn:aws:states:us-east-1:123456789012:stateMachine:WorkflowPrincipal"
+}
+```
+
+**Service Account YAML:**
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: stepfunction-invoker
+  namespace: backend
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/StepFunctionExecutionRole
+```
 
 ---
 
 ## 🔐 Segurança: Callback com Task Token
 
-Utilizado quando a Step Function pausa usando `waitForTaskToken` e aguarda uma resposta assíncrona via `SendTaskSuccess` ou `SendTaskFailure`.
+**IAM Role do consumidor:**
 
-**Itens de segurança essenciais:**
-- Tratamento do token como dado sensível.
-- Autorização controlada na aplicação consumidora (Lambda ou EKS).
-- VPC Endpoint Interface configurado se consumidor estiver em rede privada.
-- TTL e visibilidade controlada para tokens em filas SQS.
-- IAM Role com permissões mínimas e uso de tags/contexto no callback.
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "states:SendTaskSuccess",
+    "states:SendTaskFailure"
+  ],
+  "Resource": "*"
+}
+```
 
-🔗 [Melhores práticas com SQS, segurança do token e IAM →](#)
+**Dicas de segurança:**
+- O token deve ser considerado um secreto temporário.
+- Evitar logar o token.
+- Aplicar TTL curto na fila SQS onde o token é publicado.
 
 ---
 
 ## 🔐 Segurança: Lambda Privada
 
-Cenário onde uma **Lambda em VPC privada** (sem internet) realiza a chamada `StartExecution`.
+**IAM Role da Lambda:**
 
-**Requisitos técnicos:**
-- IAM Role com `states:StartExecution` restrita.
-- Acesso ao Step Functions via **VPC Endpoint Interface**.
-- Monitoramento e fallback configurado para falhas na execução.
-- Observabilidade via X-Ray e CloudWatch.
+```json
+{
+  "Effect": "Allow",
+  "Action": "states:StartExecution",
+  "Resource": "arn:aws:states:us-east-1:123456789012:stateMachine:WorkflowPrivado"
+}
+```
 
-🔗 [Exemplo Terraform de VPC Endpoint + Lambda Role →](#)
+**VPC Endpoint sugerido:**
+
+- Tipo: Interface
+- Service name: `com.amazonaws.us-east-1.states`
+- Subnets privadas + SG com porta 443 liberada para a Lambda
 
 ---
 
 ## 🚫 Casos Restritos e Não Autorizados
 
-Esta seção detalha os cenários que estão **explicitamente proibidos** ou **ainda não homologados** pela área de Arquitetura ou Segurança.
-
-**Exemplos restritos:**
-
 | Cenário | Motivo |
-|--------|--------|
-| Uso direto de HTTP Task | Risco de exposição a endpoints não autenticados |
-| Lambda Proxy com chamadas síncronas externas | Aumento de latência e risco de timeout |
-| `StartExecution` com `"Resource": "*"` | Permissões excessivas não rastreáveis |
-| Step Function iniciada diretamente por usuários finais (sem API intermediária) | Falta de validação, rastreabilidade e controle de identidade |
+|---------|--------|
+| HTTP Task direto para API externa | Exposição indevida e falta de autenticação |
+| Lambda Proxy como ponte para API | Aumenta latência e acoplamento |
+| Uso de `Resource: *` em policies | Risco de escalonamento de privilégio |
+| Execução direta por clientes externos | Sem rastreabilidade ou controle |
 
 ---
 
@@ -118,18 +176,8 @@ Esta seção detalha os cenários que estão **explicitamente proibidos** ou **a
 
 ---
 
-### 📎 Observações Finais
+### 📌 Observações Finais
 
 - Toda exceção às diretrizes aqui descritas deve ser **formalmente registrada**, avaliada pela equipe de Segurança e, se aprovada, documentada como exceção temporária.
-- O conteúdo desta página é revisto periodicamente e deve ser tratado como **referência oficial** para todos os projetos que utilizem AWS Step Functions.
+- O conteúdo desta página é revisado periodicamente e deve ser tratado como **referência oficial** para todos os projetos que utilizem AWS Step Functions.
 
----
-
-### 🛠️ Deseja importar?
-
-Se quiser, posso gerar esse conteúdo em:
-- `.docx` para edição offline
-- Exportação JSON/HTML para Confluence API
-- Estrutura em `.drawio` para o índice visual
-
-Só me dizer o formato desejado. Deseja que converta para algum deles agora?
